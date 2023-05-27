@@ -75,10 +75,11 @@ def plot_galaxy(star_map):
         margin=dict(r=20, l=10, b=10, t=10))
     return fig
 
-def colonise_galaxy(star_map, search_radius, travel_speed, max_num_targets=None, mission_success_rate=1.0):
+def colonise_galaxy(star_map, search_radius, travel_speed, max_num_targets=None, mission_success_rate=1.0, planning_time=0):
+    print("ETI is ready to colonise the galaxy...")
     missions = plan_new_missions(star_map, search_radius, travel_speed, max_num_targets)
     star_map = update_starmap(missions, star_map)
-    print(f"{len(missions)} new missions launched from newly emerged ETI!")
+    print(f"{len(missions)} new missions launched from newly emerged ETI!\n")
     year = 1
     colonising = True 
     while colonising:
@@ -87,6 +88,10 @@ def colonise_galaxy(star_map, search_radius, travel_speed, max_num_targets=None,
         if new_missions:
             print(f"{len(new_missions)} new missions launched in year {year}!")
             star_map = update_starmap(new_missions, star_map)
+            num_stars_colonised = len(star_map[star_map['state'] == 'colonised'])
+            progress = round(100 * (num_stars_colonised/len(star_map)), 1)
+            print(f"\n{progress}% of galaxy colonised...\n")
+        
         if len(star_map[star_map['state'] == 'target']) == 0:
             num_stars_colonised = len(star_map[star_map['state'] == 'colonised'])
             num_stars_unexplored = len(star_map[star_map['state'] == 'unknown'])
@@ -107,12 +112,25 @@ def find_neighbours(star_dict, radius, star_map):
                             (max_z < radius)
                            ].copy()
     nearby_stars['distance'] = np.sqrt(max_x**2 + max_y**2 + max_z**2)
-    return nearby_stars[nearby_stars['distance'] < radius].sort_values(by='distance')
+    neighbours = nearby_stars[(nearby_stars['distance'] < radius) & (nearby_stars['distance'] > 0)].sort_values(by='distance')
+    if neighbours.empty:
+        print(f"No neighbours found...")
+    else:
+        print(f"{len(neighbours)} neighbours found...")
+    return neighbours
 
 def find_targets(neighbours, max_num_targets=None):
-    targets = neighbours[neighbours['state'] == 'unknown'].copy()
-    if max_num_targets:
-        targets = uninhabited_neighbours.head(max_num_targets)
+    if not neighbours.empty:
+        num_inhabited_neighbours = len(neighbours[neighbours['state'].isin(['eti', 'colonised'])])
+        num_targetted_neighbours = len(neighbours[neighbours['state'] == 'target'])
+        if num_inhabited_neighbours > 0:
+            print(f"{num_inhabited_neighbours} neighbouring stars already colonised!")
+        if num_targetted_neighbours > 0:
+            print(f"{num_targetted_neighbours} neighbouring stars already targetted!")
+        targets = neighbours[neighbours['state'] == 'unknown'].copy()
+        print(f"Found {len(targets)} possible target stars")
+        if not targets.empty and max_num_targets:
+            targets = targets.head(max_num_targets)
     return targets
 
 def time_to_colonisation(targets, travel_speed):
@@ -121,15 +139,15 @@ def time_to_colonisation(targets, travel_speed):
     targets.set_index('target_star', inplace=True)
     return targets.to_dict(orient='dict')
 
-def plan_new_missions(star_map, search_radius, travel_speed, max_num_targets):
+def plan_new_missions(star_map, search_radius, travel_speed, max_num_targets, planning_time=0):
     inhabited_states = ['eti', 'colonised']
     new_missions = {}
-    newly_colonised_stars = star_map[(star_map['state'].isin(inhabited_states)) &
-                                     (star_map['colony_age']==0)].to_dict(orient='index')
-    num_newly_colonised_stars = len(newly_colonised_stars)
-    if num_newly_colonised_stars > 0:
-        print(f"Finding neighbours for {num_newly_colonised_stars} newly colonised star{'s' if num_newly_colonised_stars > 1 else ''}")
-        neighbours = {star_id: find_neighbours(data, search_radius, star_map) for star_id, data in newly_colonised_stars.items()}
+    stars_ready_for_missions = star_map[(star_map['state'].isin(inhabited_states)) &
+                                        (star_map['colony_age'] == planning_time)].to_dict(orient='index')
+    num_stars_ready_for_missions = len(stars_ready_for_missions)
+    if num_stars_ready_for_missions > 0:
+        print(f"Finding neighbours for {num_stars_ready_for_missions} star{'s' if num_stars_ready_for_missions > 1 else ''} ready to launch new missions")
+        neighbours = {star_id: find_neighbours(data, search_radius, star_map) for star_id, data in stars_ready_for_missions.items()}
         targets = {star_id: find_targets(stars, max_num_targets) for star_id, stars in neighbours.items()}
         new_missions = [time_to_colonisation(stars, travel_speed)['time_to_colonisation'] for star_id, stars in targets.items()]
         new_missions = {star: time for mission in new_missions for star, time in mission.items()}
