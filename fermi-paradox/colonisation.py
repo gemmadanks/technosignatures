@@ -3,28 +3,21 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 
-def scale_milky_way(num_stars_to_model = None):
-    radius_milky_way = 105700/2
-    thin_disk_height = 1470/2
-    thick_disk_height = 8500/2
-    area_milky_way_disk = math.pi * radius_milky_way**2
-    num_stars_in_milky_way = 100e9
-    num_g_stars = num_stars_in_milky_way * 0.07
-    num_habitable_stars = int(num_g_stars * 0.25)
-    
-    print(f"There are around {num_habitable_stars} habitable star systems in the Milky Way")
+def scale_milky_way(num_habitable_stars, num_stars_to_model=None):
+    milky_way = {'radius': 105700/2, 'thin_disk_height': 1470/2, 'thick_disk_height': 8500/2}
+    area_milky_way_disk = math.pi * milky_way['radius']**2
 
     if not num_stars_to_model: 
-        print("Keeping full sized Milky Way")
+        print("Keeping full-sized Milky Way")
         num_stars_to_model = num_habitable_stars
 
     scaling_factor = int(num_habitable_stars/num_stars_to_model)
     print(f"Scaling galaxy to host {num_stars_to_model} stars...")
     print(f"Reducing volume of Milky Way by a factor of {scaling_factor}")
     
-    galaxy_thickness = thick_disk_height / scaling_factor**(1./3.)
-    galaxy_radius = radius_milky_way / scaling_factor**(1./3.)
-    volume_milky_way = area_milky_way_disk * thick_disk_height
+    galaxy_thickness = milky_way['thick_disk_height'] / scaling_factor**(1./3.)
+    galaxy_radius = milky_way['radius'] / scaling_factor**(1./3.)
+    volume_milky_way = area_milky_way_disk * milky_way['thick_disk_height']
     
     galaxy_volume = math.pi * galaxy_radius**2 * galaxy_thickness
     assert math.ceil(volume_milky_way / galaxy_volume) == scaling_factor
@@ -75,7 +68,9 @@ def plot_galaxy(star_map):
         margin=dict(r=20, l=10, b=10, t=10))
     return fig
 
-def colonise_galaxy(star_map, search_radius, travel_speed, max_num_targets=None, mission_success_rate=1.0, planning_time=0):
+def colonise_galaxy(star_map, search_radius, travel_speed,
+                    max_num_targets=None, mission_success_rate=1.0,
+                    planning_time=0, longevity=None):
     print("ETI is ready to colonise the galaxy...")
     missions = plan_new_missions(star_map, search_radius, travel_speed, max_num_targets)
     star_map = update_starmap(missions, star_map)
@@ -83,7 +78,8 @@ def colonise_galaxy(star_map, search_radius, travel_speed, max_num_targets=None,
     year = 1
     colonising = True 
     while colonising:
-        star_map = progress_missions(star_map, year)
+        star_map = progress_colonies(star_map, year, longevity)
+        star_map = progress_missions(star_map, year)    
         new_missions = plan_new_missions(star_map, search_radius, travel_speed, max_num_targets)
         if new_missions:
             print(f"{len(new_missions)} new missions launched in year {year}!")
@@ -120,8 +116,11 @@ def find_neighbours(star_dict, radius, star_map):
     return neighbours
 
 def find_targets(neighbours, max_num_targets=None):
+    inhabited = ['eti', 'colonised', 'extinct']
+    targets = pd.DataFrame(data=None, columns=neighbours.columns)
+
     if not neighbours.empty:
-        num_inhabited_neighbours = len(neighbours[neighbours['state'].isin(['eti', 'colonised'])])
+        num_inhabited_neighbours = len(neighbours[neighbours['state'].isin(inhabited)])
         num_targetted_neighbours = len(neighbours[neighbours['state'] == 'target'])
         if num_inhabited_neighbours > 0:
             print(f"{num_inhabited_neighbours} neighbouring stars already colonised!")
@@ -140,16 +139,16 @@ def time_to_colonisation(targets, travel_speed):
     return targets.to_dict(orient='dict')
 
 def plan_new_missions(star_map, search_radius, travel_speed, max_num_targets, planning_time=0):
-    inhabited_states = ['eti', 'colonised']
+    inhabited = ['eti', 'colonised']
     new_missions = {}
-    stars_ready_for_missions = star_map[(star_map['state'].isin(inhabited_states)) &
+    stars_ready_for_missions = star_map[(star_map['state'].isin(inhabited)) &
                                         (star_map['colony_age'] == planning_time)].to_dict(orient='index')
     num_stars_ready_for_missions = len(stars_ready_for_missions)
     if num_stars_ready_for_missions > 0:
         print(f"Finding neighbours for {num_stars_ready_for_missions} star{'s' if num_stars_ready_for_missions > 1 else ''} ready to launch new missions")
         neighbours = {star_id: find_neighbours(data, search_radius, star_map) for star_id, data in stars_ready_for_missions.items()}
         targets = {star_id: find_targets(stars, max_num_targets) for star_id, stars in neighbours.items()}
-        new_missions = [time_to_colonisation(stars, travel_speed)['time_to_colonisation'] for star_id, stars in targets.items()]
+        new_missions = [time_to_colonisation(stars, travel_speed)['time_to_colonisation'] for star_id, stars in targets.items() if not stars.empty]
         new_missions = {star: time for mission in new_missions for star, time in mission.items()}
     return new_missions
 
@@ -159,9 +158,19 @@ def update_starmap(new_missions, star_map):
         star_map.loc[star_id, 'state'] = 'target'
     return star_map
 
+def progress_colonies(star_map, year, longevity=None):
+    stars_with_colonies = star_map.loc[star_map['state'].isin(['colonised', 'eti'])].index
+    star_map.loc[stars_with_colonies, 'colony_age'] = star_map.loc[stars_with_colonies, 'colony_age'] + 1
+    if longevity:
+        extinct_colonies = (star_map['state'].isin(['colonised', 'eti'])) & (star_map['colony_age'] >= longevity)
+        num_extinct_colonies = len(star_map[extinct_colonies])
+        if num_extinct_colonies > 0:
+            print(f"{num_extinct_colonies} colonies have gone extinct")
+            star_map.loc[extinct_colonies, 'state'] = 'extinct'
+    return star_map
+
 def progress_missions(star_map, year, mission_success_rate=1.0):
     star_map.loc[:, 'time_to_colonisation'] = star_map.loc[:, 'time_to_colonisation'] - 1
-    star_map.loc[star_map['state'].isin(['colonised', 'eti']), 'colony_age'] = star_map.loc[star_map['state'].isin(['colonised', 'eti']), 'colony_age'] + 1
     num_stars_reached = len(star_map.loc[star_map['time_to_colonisation'] == 0])
     if num_stars_reached > 0:
         print(f"{num_stars_reached} stars reached by ETI in year {year}")
@@ -183,6 +192,26 @@ def colonise_stars(star_map, num_stars_reached, mission_success_rate, year):
 
     return star_map
 
+def report(star_map):
+    num_stars = len(star_map)
+    num_unexplored_stars = len(star_map[star_map['state'] == 'unknown'])
+    if num_unexplored_stars < num_stars - 1:
+        colonisation_timespan = int(star_map['year_of_colonisation'].max())
+        
+        num_extinct_stars = len(star_map[star_map['state'] == 'extinct'])
+        num_surviving_stars = len(star_map[star_map['state'] == 'colonised'])
+        print(f"""Colonisation took {colonisation_timespan} years and left {num_unexplored_stars} stars unexplored. 
+                  {num_surviving_stars} colonies survive.
+                  {num_extinct_stars} colonies went extinct.""")
+        if num_stars < 1e5:
+            plot_galaxy(star_map).show()
+            px.histogram(star_map, x='year_of_colonisation').show()
+        else:
+            print("Plotting results for a sample of 10,000 stars...")
+            plot_galaxy(star_map.sample(10000)).show()
+            px.histogram(star_map.sample(10000), x='year_of_colonisation').show()
+    else:
+        print("Colonisation failed!")
 
 
 
