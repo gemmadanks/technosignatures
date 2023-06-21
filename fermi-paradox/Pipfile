@@ -1,0 +1,19 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+astropy = "*"
+astroquery = "*"
+jupyter = "*"
+jupyterlab = ">=3"
+pandas = "*"
+plotly = "==5.14.1"
+ipywidgets = ">=7.6"
+jupyter-dash = "*"
+
+[dev-packages]
+
+[requires]
+python_version = "3.10"
