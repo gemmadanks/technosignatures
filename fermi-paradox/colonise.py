@@ -4,6 +4,22 @@ import pandas as pd
 import plotly.express as px
 
 def scale_milky_way(num_habitable_stars, num_stars_to_model=None):
+    """Scale galaxy using size of the Milky Way.
+    
+    The Milky Way is assumed to have a diameter of 105700 light years,
+    a thin disk height of 1470 light years and a thick disk height of
+    8500 light years.
+
+    Args:
+        num_habitable_stars (int): number of stars at full scale (in
+                                   the Milky Way)
+        num_stars_to_model (int): number of stars to model (if None
+                                  will use num_habitable_stars)
+    Returns:
+        galaxy_radius: radius of scaled galaxy
+        galaxy_thickness: thickness of scaled galaxy
+        num_stars_to_model: number of stars in scaled galaxy
+    """
     milky_way = {'radius': 105700/2, 'thin_disk_height': 1470/2, 'thick_disk_height': 8500/2}
     area_milky_way_disk = math.pi * milky_way['radius']**2
 
